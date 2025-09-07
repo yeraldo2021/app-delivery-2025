@@ -1,21 +1,16 @@
-# app.py — Flask + SQLAlchemy (Cliente / Repartidor / Restaurante) — listo para Railway
-# Producción (Railway): usa Procfile y variables SECRET_KEY + DATABASE_URL (Postgres).
-# Local (opcional): pip install -r requirements.txt && python app.py
-
+# app.py — Flask + SQLAlchemy (Cliente / Repartidor / Restaurante) — Railway
 import os, math, hashlib, secrets
 from datetime import datetime
-from flask import Flask, request, jsonify, session, redirect, url_for, render_template
+from flask import Flask, request, jsonify, session, redirect, url_for, render_template_string
 from flask_sqlalchemy import SQLAlchemy
-from jinja2 import DictLoader
 
-# ===================== Config =====================
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv("SECRET_KEY", secrets.token_hex(16))
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv("DATABASE_URL", "sqlite:///resto.db")
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
-# ===================== Modelos =====================
+# --------------------- Modelos ---------------------
 class Client(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     phone = db.Column(db.String(32), unique=True, nullable=False)
@@ -76,7 +71,7 @@ class Driver(db.Model):
 with app.app_context():
     db.create_all()
 
-# ===================== Utilidades =====================
+# --------------------- Utilidades ---------------------
 MENU = {
     'Chaufa': 18.0,
     'Tallarín saltado': 20.0,
@@ -101,14 +96,15 @@ def hash_pin(e164: str, pin4: str) -> str:
     return hashlib.sha256((e164 + ":" + pin4).encode()).hexdigest()
 
 def haversine_km(lat1, lon1, lat2, lon2):
+    import math
     R=6371.0
     p1=math.radians(lat1); p2=math.radians(lat2)
     dphi=math.radians(lat2-lat1); dl=math.radians(lon2-lon1)
     a=math.sin(dphi/2)**2+math.cos(p1)*math.cos(p2)*math.sin(dl/2)**2
     return 2*R*math.asin(min(1, math.sqrt(a)))
 
-# ===================== Templates (en memoria) =====================
-BASE = """
+# --------------------- Plantilla base ---------------------
+BASE_SHELL = """
 <!doctype html>
 <html lang="es"><head>
 <meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -141,14 +137,17 @@ BASE = """
     <a href="{{ url_for('restaurante') }}" class="{{ 'active' if tab=='a' else '' }}">Restaurante</a>
     {% if session.get('cid') %} <a href="{{ url_for('logout') }}">Cerrar sesión</a> {% endif %}
   </nav>
-  {% block content %}{% endblock %}
+  {{ content|safe }}
 </div>
 <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
 </body></html>
 """
 
-CLIENTE = """
-{% extends "base.html" %}{% block content %}
+def render_page(content_html: str, **ctx):
+    return render_template_string(BASE_SHELL, content=content_html, **ctx)
+
+# --------------------- “Páginas” (contenido) ---------------------
+CLIENTE_HTML = """
 <div class="card">
   <h1>🧑‍🍳 Cliente – Haz tu pedido</h1>
   <div class="row">
@@ -308,8 +307,7 @@ async function placeOrder(){
 </script>
 """
 
-REPARTIDOR = """
-{% extends "base.html" %}{% block content %}
+REPARTIDOR_HTML = """
 <div class="card">
   <h1>🚴 Repartidor – Toma pedidos</h1>
   <div class="row">
@@ -385,8 +383,7 @@ loadOrders(); setInterval(loadOrders, 5000);
 </script>
 """
 
-RESTAURANTE = """
-{% extends "base.html" %}{% block content %}
+RESTAURANTE_HTML = """
 <div class="card">
   <h1>🏪 Restaurante – Panel</h1>
   <p class="badge">Vista administrativa: pedidos y repartidores.</p>
@@ -442,38 +439,30 @@ loadAdmin(); setInterval(loadAdmin, 5000);
 </script>
 """
 
-# Registrar plantillas en memoria para poder usar render_template(...)
-app.jinja_loader = DictLoader({
-    "base.html": BASE,
-    "cliente.html": CLIENTE,
-    "repartidor.html": REPARTIDOR,
-    "restaurante.html": RESTAURANTE,
-})
-
-# ===================== Rutas UI =====================
+# --------------------- Rutas UI ---------------------
 @app.route("/")
 def home():
     return redirect(url_for("cliente"))
 
 @app.route("/cliente")
 def cliente():
-    return render_template("cliente.html", title="Cliente", tab="c",
-                           phone=session.get("phone",""), menu=MENU)
+    return render_page(CLIENTE_HTML, title="Cliente", tab="c",
+                       phone=session.get("phone",""), menu=MENU)
 
 @app.route("/repartidor")
 def repartidor():
-    return render_template("repartidor.html", title="Repartidor", tab="r")
+    return render_page(REPARTIDOR_HTML, title="Repartidor", tab="r")
 
 @app.route("/restaurante")
 def restaurante():
-    return render_template("restaurante.html", title="Restaurante", tab="a")
+    return render_page(RESTAURANTE_HTML, title="Restaurante", tab="a")
 
 @app.route("/logout")
 def logout():
     session.clear()
     return redirect(url_for("cliente"))
 
-# ===================== API =====================
+# --------------------- API ---------------------
 @app.post("/api/auth/pin")
 def api_create_pin():
     d = request.get_json(force=True)
@@ -509,7 +498,7 @@ def require_session_json():
     cid = session.get("cid")
     return (cid, None) if cid else (None, (jsonify(error="No autorizado"), 401))
 
-# ---- Direcciones (máx 3) ----
+# Direcciones
 @app.get("/api/addresses")
 def api_addresses_get():
     cid, err = require_session_json()
@@ -559,7 +548,7 @@ def api_addresses_delete():
     db.session.delete(r); db.session.commit()
     return jsonify(ok=True)
 
-# ---- Pedidos ----
+# Pedidos
 @app.get("/api/orders")
 def api_orders_new():
     rows = Order.query.filter_by(status="new").order_by(Order.created_at.desc()).all()
@@ -638,7 +627,7 @@ def api_orders_deliver(order_id: int):
     db.session.commit()
     return jsonify(ok=True)
 
-# ---- Repartidores ----
+# Repartidores
 @app.get("/api/drivers")
 def api_drivers_get():
     rows = Driver.query.order_by(Driver.updated_at.desc()).all()
@@ -661,7 +650,7 @@ def api_driver_loc():
     db.session.commit()
     return jsonify(ok=True)
 
-# ===================== Run =====================
+# --------------------- Misc ---------------------
 @app.route("/ping")
 def ping(): return "pong"
 
