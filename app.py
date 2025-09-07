@@ -144,7 +144,10 @@ BASE_SHELL = """
 """
 
 def render_page(content_html: str, **ctx):
-    return render_template_string(BASE_SHELL, content=content_html, **ctx)
+    # 1) Renderiza el contenido con su propio contexto (para que funcionen {{ ... }} y {% ... %})
+    inner = render_template_string(content_html, **ctx)
+    # 2) Inserta el resultado en la carcasa/base
+    return render_template_string(BASE_SHELL, content=inner, **ctx)
 
 # --------------------- “Páginas” (contenido) ---------------------
 CLIENTE_HTML = """
