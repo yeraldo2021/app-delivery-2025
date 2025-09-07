@@ -9,11 +9,9 @@ db = SQLAlchemy()
 def _normalize_db_url(u: str) -> str:
     if not u:
         return "sqlite:///resto.db"
-    # postgres:// -> postgresql://
     if u.startswith("postgres://"):
         u = u.replace("postgres://", "postgresql://", 1)
     if u.startswith("postgresql://"):
-        # añade sslmode=require si no está
         parts = urlparse(u)
         q = parse_qs(parts.query)
         if "sslmode" not in q:
@@ -25,24 +23,23 @@ def _normalize_db_url(u: str) -> str:
 def create_app():
     app = Flask(__name__)
     app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", secrets.token_hex(16))
-
-    raw = os.getenv("DATABASE_URL", "sqlite:///resto.db")
-    app.config["SQLALCHEMY_DATABASE_URI"] = _normalize_db_url(raw)
+    app.config["SQLALCHEMY_DATABASE_URI"] = _normalize_db_url(os.getenv("DATABASE_URL"))
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
     db.init_app(app)
 
-    from . import models  # registra modelos
+    # Importa modelos para que create_all conozca las tablas
+    from . import models  # noqa
 
     with app.app_context():
-        db.create_all()  # crea tablas si no existen
+        db.create_all()
 
+    # Blueprints (API y páginas)
     from .api import api_bp
-    from .web.cliente import cliente_bp
-    from .web.repartidor import repartidor_bp
-    from .web.restaurante import restaurante_bp
-
     app.register_blueprint(api_bp, url_prefix="/api")
+
+    # IMPORTANTE: importar el paquete web para que se adjunten las rutas a los blueprints
+    from .web import cliente_bp, repartidor_bp, restaurante_bp  # noqa
     app.register_blueprint(cliente_bp)
     app.register_blueprint(repartidor_bp)
     app.register_blueprint(restaurante_bp)
@@ -56,3 +53,4 @@ def create_app():
     def ping(): return "pong"
 
     return app
+
