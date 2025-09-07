@@ -1,4 +1,4 @@
-# app.py — Flask + SQLAlchemy (Cliente / Repartidor / Restaurante) — Railway
+# app.py — Flask + SQLAlchemy (Cliente / Repartidor / Restaurante) — Railway listo
 import os, math, hashlib, secrets
 from datetime import datetime
 from flask import Flask, request, jsonify, session, redirect, url_for, render_template_string
@@ -96,14 +96,13 @@ def hash_pin(e164: str, pin4: str) -> str:
     return hashlib.sha256((e164 + ":" + pin4).encode()).hexdigest()
 
 def haversine_km(lat1, lon1, lat2, lon2):
-    import math
     R=6371.0
     p1=math.radians(lat1); p2=math.radians(lat2)
     dphi=math.radians(lat2-lat1); dl=math.radians(lon2-lon1)
     a=math.sin(dphi/2)**2+math.cos(p1)*math.cos(p2)*math.sin(dl/2)**2
     return 2*R*math.asin(min(1, math.sqrt(a)))
 
-# --------------------- Plantilla base ---------------------
+# --------------------- Shell base ---------------------
 BASE_SHELL = """
 <!doctype html>
 <html lang="es"><head>
@@ -112,7 +111,7 @@ BASE_SHELL = """
 <link rel="stylesheet" href="https://unpkg.com/modern-css-reset/dist/reset.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
 <style>
- body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial,sans-serif;background:#f8fafc;color:#0f172a}
+ body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial,sans-serif;background:#f4f6fb;color:#0f172a}
  .container{max-width:1080px;margin:0 auto;padding:20px}
  .card{background:#fff;border:1px solid #e2e8f0;border-radius:14px;box-shadow:0 10px 24px rgba(2,6,23,.05);padding:16px;margin:14px 0}
  h1{font-size:22px;margin-bottom:10px} h2{font-size:18px;margin:8px 0}
@@ -139,17 +138,16 @@ BASE_SHELL = """
   </nav>
   {{ content|safe }}
 </div>
-<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js" defer></script>
 </body></html>
 """
 
 def render_page(content_html: str, **ctx):
-    # 1) Renderiza el contenido con su propio contexto (para que funcionen {{ ... }} y {% ... %})
+    # Render en 2 pasos: primero el contenido, luego el layout
     inner = render_template_string(content_html, **ctx)
-    # 2) Inserta el resultado en la carcasa/base
     return render_template_string(BASE_SHELL, content=inner, **ctx)
 
-# --------------------- “Páginas” (contenido) ---------------------
+# --------------------- Contenidos ---------------------
 CLIENTE_HTML = """
 <div class="card">
   <h1>🧑‍🍳 Cliente – Haz tu pedido</h1>
@@ -190,123 +188,127 @@ CLIENTE_HTML = """
 </div>
 
 <script>
-const MENU = {{ menu | tojson }};
-let map, marker, cur = {lat:null, lon:null}, selId=null;
+window.addEventListener('DOMContentLoaded', function(){
+  const MENU = {{ menu | tojson }};
+  let map, marker, cur = {lat:null, lon:null}, selId=null;
 
-function fmt(n){return (Math.round(n*100)/100).toFixed(2)}
-function $id(x){return document.getElementById(x)}
+  function fmt(n){return (Math.round(n*100)/100).toFixed(2)}
+  function $id(x){return document.getElementById(x)}
 
-function ensureMap(){
-  if(map) return;
-  map = L.map('map').setView([-12.0464, -77.0428], 13);
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19}).addTo(map);
-  map.on('click', e=>{
-    const la=+e.latlng.lat.toFixed(6), lo=+e.latlng.lng.toFixed(6);
-    if(marker) map.removeLayer(marker);
-    marker=L.marker([la,lo]).addTo(map);
-    cur.lat=la; cur.lon=lo;
-    $id('coords').innerText=`Coords: ${la}, ${lo}`;
-  });
-  if(navigator.geolocation){
-    navigator.geolocation.getCurrentPosition(p=>{
-      map.setView([+p.coords.latitude.toFixed(6), +p.coords.longitude.toFixed(6)], 16);
-    },()=>{}, {enableHighAccuracy:true, timeout:10000});
+  function ensureMap(){
+    if(map) return;
+    if(!window.L){ setTimeout(ensureMap, 100); return; }
+    map = L.map('map').setView([-12.0464, -77.0428], 13);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19}).addTo(map);
+    map.on('click', e=>{
+      const la=+e.latlng.lat.toFixed(6), lo=+e.latlng.lng.toFixed(6);
+      if(marker) map.removeLayer(marker);
+      marker=L.marker([la,lo]).addTo(map);
+      cur.lat=la; cur.lon=lo;
+      $id('coords').innerText=`Coords: ${la}, ${lo}`;
+    });
+    if(navigator.geolocation){
+      navigator.geolocation.getCurrentPosition(p=>{
+        map.setView([+p.coords.latitude.toFixed(6), +p.coords.longitude.toFixed(6)], 16);
+      },()=>{}, {enableHighAccuracy:true, timeout:10000});
+    }
   }
-}
-ensureMap();
+  ensureMap();
 
-function menuUI(){
-  const c=$id('menu'); c.innerHTML='';
-  for(const [name, price] of Object.entries(MENU)){
-    const row=document.createElement('div'); row.className='item';
-    row.innerHTML = `<div>${name} <span class="badge">S/ ${price}</span></div>
-      <input type="number" min="0" value="0" style="width:80px" data-name="${name}" />`;
-    c.appendChild(row);
+  function menuUI(){
+    const c=$id('menu'); c.innerHTML='';
+    for(const [name, price] of Object.entries(MENU)){
+      const row=document.createElement('div'); row.className='item';
+      row.innerHTML = `<div>${name} <span class="badge">S/ ${price}</span></div>
+        <input type="number" min="0" value="0" style="width:80px" data-name="${name}" />`;
+      c.appendChild(row);
+    }
+    c.addEventListener('input', updateTotal);
   }
-  c.addEventListener('input', updateTotal);
-}
-menuUI();
+  menuUI();
 
-function updateTotal(){
-  let s=0;
-  document.querySelectorAll('#menu input[type=number]').forEach(inp=>{
-    const qty=parseInt(inp.value||'0',10), price=MENU[inp.dataset.name]||0;
-    s += qty * price;
-  });
-  $id('total').innerText = fmt(s);
-}
+  function updateTotal(){
+    let s=0;
+    document.querySelectorAll('#menu input[type=number]').forEach(inp=>{
+      const qty=parseInt(inp.value||'0',10), price=MENU[inp.dataset.name]||0;
+      s += qty * price;
+    });
+    $id('total').innerText = fmt(s);
+  }
 
-async function api(path, method='GET', body=null){
-  const opt={ method, headers:{'Content-Type':'application/json'} };
-  if(body) opt.body = JSON.stringify(body);
-  const r = await fetch(path,opt); const j=await r.json();
-  if(!r.ok){ alert(j.error||'Error'); throw new Error(j.error||'Error'); }
-  return j;
-}
+  async function api(path, method='GET', body=null){
+    const opt={ method, headers:{'Content-Type':'application/json'} };
+    if(body) opt.body = JSON.stringify(body);
+    const r = await fetch(path,opt); const j=await r.json();
+    if(!r.ok){ alert(j.error||'Error'); throw new Error(j.error||'Error'); }
+    return j;
+  }
 
-async function createPin(){
-  const phone=$id('phone').value.trim(), pin=$id('pin').value.trim();
-  await api('/api/auth/pin','POST',{ phone, pin });
-  alert('PIN creado');
-}
-async function verifyPin(){
-  const phone=$id('phone').value.trim(), pin=$id('pin').value.trim();
-  const r = await api('/api/auth/verify','POST',{ phone, pin });
-  if(r.ok) location.reload();
-}
+  window.createPin = async function(){
+    const phone=$id('phone').value.trim(), pin=$id('pin').value.trim();
+    await api('/api/auth/pin','POST',{ phone, pin });
+    alert('PIN creado');
+  }
+  window.verifyPin = async function(){
+    const phone=$id('phone').value.trim(), pin=$id('pin').value.trim();
+    const r = await api('/api/auth/verify','POST',{ phone, pin });
+    if(r.ok) location.reload();
+  }
 
-async function loadAddresses(){
-  const r = await fetch('/api/addresses'); if(r.status===401) return;
-  const j = await r.json(); const box=$id('addrList'); box.innerHTML='';
-  (j.list||[]).forEach(a=>{
-    const li=document.createElement('div'); li.className='item';
-    li.innerHTML = `
-      <div><b>${a.alias || '(sin alias)'}</b> · ${a.address}<br><span class="badge">${a.lat}, ${a.lon}</span></div>
-      <div style="display:flex;gap:6px">
-        <button class="secondary" onclick="useAddress(${a.id}, '${(a.address||'').replace(/'/g,"\\'")}', ${a.lat}, ${a.lon})">Usar</button>
-        <button class="secondary" onclick="editAddress(${a.id}, '${(a.alias||'').replace(/'/g,"\\'")}', '${(a.address||'').replace(/'/g,"\\'")}', ${a.lat}, ${a.lon})">Editar</button>
-        <button onclick="delAddress(${a.id})">Eliminar</button>
-      </div>`;
-    box.appendChild(li);
-  });
-}
-loadAddresses();
-
-function useAddress(id, addr, la, lo){
-  selId=id; $id('address').value=addr; cur.lat=la; cur.lon=lo;
-  if(map){ map.setView([la,lo], 16); if(marker) map.removeLayer(marker); marker=L.marker([la,lo]).addTo(map); }
-  $id('coords').innerText=`Coords: ${la}, ${lo}`;
-}
-function editAddress(id, alias, addr, la, lo){
-  selId=id; $id('alias').value=alias; useAddress(id, addr, la, lo);
-}
-function clearSel(){ selId=null; $id('alias').value=''; }
-
-async function saveAddress(){
-  const alias=$id('alias').value.trim(), address=$id('address').value.trim();
-  if(!address || cur.lat==null || cur.lon==null) return alert('Completa dirección y coordenadas');
-  if(selId){ await api('/api/addresses','PUT',{ id:selId, alias, address, lat:cur.lat, lon:cur.lon }); }
-  else     { await api('/api/addresses','POST',{ alias, address, lat:cur.lat, lon:cur.lon }); }
-  selId=null; $id('alias').value=''; loadAddresses();
-}
-
-async function delAddress(id){
-  await api('/api/addresses','DELETE',{ id });
-  if(selId===id){ selId=null; $id('alias').value=''; }
+  async function loadAddresses(){
+    const r = await fetch('/api/addresses'); if(r.status===401) return;
+    const j = await r.json(); const box=$id('addrList'); box.innerHTML='';
+    (j.list||[]).forEach(a=>{
+      const li=document.createElement('div'); li.className='item';
+      li.innerHTML = `
+        <div><b>${a.alias || '(sin alias)'}</b> · ${a.address}<br><span class="badge">${a.lat}, ${a.lon}</span></div>
+        <div style="display:flex;gap:6px">
+          <button class="secondary" onclick="useAddress(${a.id}, '${(a.address||'').replace(/'/g,"\\'")}', ${a.lat}, ${a.lon})">Usar</button>
+          <button class="secondary" onclick="editAddress(${a.id}, '${(a.alias||'').replace(/'/g,"\\'")}', '${(a.address||'').replace(/'/g,"\\'")}', ${a.lat}, ${a.lon})">Editar</button>
+          <button onclick="delAddress(${a.id})">Eliminar</button>
+        </div>`;
+      box.appendChild(li);
+    });
+  }
   loadAddresses();
-}
 
-async function placeOrder(){
-  const address=$id('address').value.trim();
-  if(!address || cur.lat==null || cur.lon==null) return alert('Completa dirección y fija coordenadas');
-  const items=[]; document.querySelectorAll('#menu input[type=number]').forEach(inp=>{
-    const qty=parseInt(inp.value||'0',10); if(qty>0) items.push({ name: inp.dataset.name, qty, price: MENU[inp.dataset.name]||0 });
-  });
-  if(!items.length) return alert('Agrega al menos 1 ítem');
-  const r = await api('/api/orders','POST',{ address, lat:cur.lat, lon:cur.lon, items });
-  alert('Pedido creado – ID: '+r.order.id+' (S/ '+r.order.total+')');
-  document.querySelectorAll('#menu input[type=number]').forEach(inp=> inp.value=0); updateTotal();
-}
+  window.useAddress = function(id, addr, la, lo){
+    selId=id; $id('address').value=addr; cur.lat=la; cur.lon=lo;
+    if(map){ map.setView([la,lo], 16); if(marker) map.removeLayer(marker); marker=L.marker([la,lo]).addTo(map); }
+    $id('coords').innerText=`Coords: ${la}, ${lo}`;
+  }
+  window.editAddress = function(id, alias, addr, la, lo){
+    selId=id; $id('alias').value=alias; window.useAddress(id, addr, la, lo);
+  }
+  window.clearSel = function(){ selId=null; $id('alias').value=''; }
+
+  window.saveAddress = async function(){
+    const alias=$id('alias').value.trim(), address=$id('address').value.trim();
+    if(!address || cur.lat==null || cur.lon==null) return alert('Completa dirección y coordenadas');
+    if(selId){ await api('/api/addresses','PUT',{ id:selId, alias, address, lat:cur.lat, lon:cur.lon }); }
+    else     { await api('/api/addresses','POST',{ alias, address, lat:cur.lat, lon:cur.lon }); }
+    selId=null; $id('alias').value=''; loadAddresses();
+  }
+
+  window.delAddress = async function(id){
+    await api('/api/addresses','DELETE',{ id });
+    if(selId===id){ selId=null; $id('alias').value=''; }
+    loadAddresses();
+  }
+
+  window.placeOrder = async function(){
+    const address=$id('address').value.trim();
+    if(!address || cur.lat==null || cur.lon==null) return alert('Completa dirección y fija coordenadas');
+    const items=[]; document.querySelectorAll('#menu input[type=number]').forEach(inp=>{
+      const qty=parseInt(inp.value||'0',10); if(qty>0) items.push({ name: inp.dataset.name, qty, price: MENU[inp.dataset.name]||0 });
+    });
+    if(!items.length) return alert('Agrega al menos 1 ítem');
+    const r = await api('/api/orders','POST',{ address, lat:cur.lat, lon:cur.lon, items });
+    alert('Pedido creado – ID: '+r.order.id+' (S/ '+r.order.total+')');
+    document.querySelectorAll('#menu input[type=number]').forEach(inp=> inp.value=0);
+    document.getElementById('total').innerText='0.00';
+  }
+});
 </script>
 """
 
@@ -330,59 +332,67 @@ REPARTIDOR_HTML = """
 </div>
 
 <script>
-let dmap, dmarker, dcur={lat:null, lon:null};
-function ensureDMap(){
-  if(dmap) return;
-  dmap = L.map('dmap').setView([-12.0464, -77.0428], 13);
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19}).addTo(dmap);
-}
-ensureDMap();
+window.addEventListener('DOMContentLoaded', function(){
+  let dmap, dmarker, dcur={lat:null, lon:null};
 
-function getLoc(){
-  if(!navigator.geolocation) return alert('Sin geolocalización');
-  navigator.geolocation.getCurrentPosition(p=>{
-    const la=+p.coords.latitude.toFixed(6), lo=+p.coords.longitude.toFixed(6);
-    if(dmarker) dmap.removeLayer(dmarker);
-    dmarker=L.marker([la,lo]).addTo(dmap);
-    dmap.setView([la,lo], 16);
-    dcur.lat=la; dcur.lon=lo; document.getElementById('dcoords').innerText=`Coords: ${la}, ${lo}`;
-  }, e=>alert('Ubicación: '+e.message), {enableHighAccuracy:true});
-}
-async function api(path, method='GET', body=null){
-  const opt = { method, headers:{'Content-Type':'application/json'} };
-  if(body) opt.body = JSON.stringify(body);
-  const r = await fetch(path, opt); const j = await r.json();
-  if(!r.ok){ alert(j.error||'Error'); throw new Error(j.error||'Error'); }
-  return j;
-}
-async function saveLoc(){
-  const phone = document.getElementById('dphone').value.trim();
-  if(!phone) return alert('Ingresa tu teléfono');
-  await api('/api/drivers','PUT',{ phone, lat:dcur.lat, lon:dcur.lon });
-  alert('Ubicación guardada');
-}
-async function loadOrders(){
-  const j = await api('/api/orders','GET');
-  const box = document.getElementById('olist'); box.innerHTML='';
-  (j.orders||[]).forEach(o=>{
-    const li=document.createElement('div'); li.className='item';
-    li.innerHTML = `
-      <div>
-        <div><b>${o.address}</b></div>
-        <div class="badge">S/ ${o.total} · ${new Date(o.created_at).toLocaleString()}</div>
-      </div>
-      <button onclick="takeOrder(${o.id})">Tomar</button>`;
-    box.appendChild(li);
-  });
-}
-async function takeOrder(id){
-  const phone = document.getElementById('dphone').value.trim();
-  if(!phone) return alert('Ingresa tu teléfono');
-  const j = await api('/api/orders/'+id+'/assign','POST',{ driver_phone: phone });
-  alert(j.ok ? ('Pedido tomado · ETA ~'+(j.eta_min ?? '?')+' min') : (j.error || 'Error'));
-  loadOrders();
-}
-loadOrders(); setInterval(loadOrders, 5000);
+  function ensureDMap(){
+    if(dmap) return;
+    if(!window.L){ setTimeout(ensureDMap, 100); return; }
+    dmap = L.map('dmap').setView([-12.0464, -77.0428], 13);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19}).addTo(dmap);
+  }
+  ensureDMap();
+
+  window.getLoc = function(){
+    if(!navigator.geolocation) return alert('Sin geolocalización');
+    navigator.geolocation.getCurrentPosition(p=>{
+      const la=+p.coords.latitude.toFixed(6), lo=+p.coords.longitude.toFixed(6);
+      if(dmarker) dmap.removeLayer(dmarker);
+      dmarker=L.marker([la,lo]).addTo(dmap);
+      dmap.setView([la,lo], 16);
+      dcur.lat=la; dcur.lon=lo; document.getElementById('dcoords').innerText=`Coords: ${la}, ${lo}`;
+    }, e=>alert('Ubicación: '+e.message), {enableHighAccuracy:true});
+  }
+
+  async function api(path, method='GET', body=null){
+    const opt = { method, headers:{'Content-Type':'application/json'} };
+    if(body) opt.body = JSON.stringify(body);
+    const r = await fetch(path, opt); const j = await r.json();
+    if(!r.ok){ alert(j.error||'Error'); throw new Error(j.error||'Error'); }
+    return j;
+  }
+
+  window.saveLoc = async function(){
+    const phone = document.getElementById('dphone').value.trim();
+    if(!phone) return alert('Ingresa tu teléfono');
+    await api('/api/drivers','PUT',{ phone, lat:dcur.lat, lon:dcur.lon });
+    alert('Ubicación guardada');
+  }
+
+  async function loadOrders(){
+    const j = await api('/api/orders','GET');
+    const box = document.getElementById('olist'); box.innerHTML='';
+    (j.orders||[]).forEach(o=>{
+      const li=document.createElement('div'); li.className='item';
+      li.innerHTML = `
+        <div>
+          <div><b>${o.address}</b></div>
+          <div class="badge">S/ ${o.total} · ${new Date(o.created_at).toLocaleString()}</div>
+        </div>
+        <button onclick="takeOrder(${o.id})">Tomar</button>`;
+      box.appendChild(li);
+    });
+  }
+  window.takeOrder = async function(id){
+    const phone = document.getElementById('dphone').value.trim();
+    if(!phone) return alert('Ingresa tu teléfono');
+    const j = await api('/api/orders/'+id+'/assign','POST',{ driver_phone: phone });
+    alert(j.ok ? ('Pedido tomado · ETA ~'+(j.eta_min ?? '?')+' min') : (j.error || 'Error'));
+    loadOrders();
+  }
+
+  loadOrders(); setInterval(loadOrders, 5000);
+});
 </script>
 """
 
@@ -407,38 +417,40 @@ RESTAURANTE_HTML = """
 </div>
 
 <script>
-async function api(path, method='GET', body=null){
-  const opt={ method, headers:{'Content-Type':'application/json'} };
-  if(body) opt.body = JSON.stringify(body);
-  const r=await fetch(path,opt); const j=await r.json();
-  if(!r.ok){ console.error(j); return { ok:false, error:j.error||'Error' }; }
-  return j;
-}
-async function loadAdmin(){
-  const o = await api('/api/orders/all'); const d = await api('/api/drivers');
-  const ot = document.querySelector('#orders tbody'); ot.innerHTML='';
-  (o.orders||[]).forEach(x=>{
-    const tr=document.createElement('tr');
-    tr.innerHTML = `
-      <td>${x.id}</td><td>${x.status}</td><td>${x.address}</td>
-      <td>S/ ${x.total}</td><td>${x.assigned_driver||'—'}</td>
-      <td>${x.eta_min ?? '—'}</td><td>${new Date(x.created_at).toLocaleString()}</td>
-      <td>${x.status!=='delivered' ? `<button onclick="deliver(${x.id})">Entregado</button>` : '—'}</td>`;
-    ot.appendChild(tr);
-  });
-  const dt = document.querySelector('#drivers tbody'); dt.innerHTML='';
-  (d.list||[]).forEach(r=>{
-    const tr=document.createElement('tr');
-    tr.innerHTML = `<td>${r.phone}</td><td>${r.lat ?? '—'}</td><td>${r.lon ?? '—'}</td>
-                    <td>${r.status}</td><td>${r.active_orders}</td><td>${new Date(r.updated_at).toLocaleString()}</td>`;
-    dt.appendChild(tr);
-  });
-}
-async function deliver(id){
-  const r = await api('/api/orders/'+id+'/deliver','POST');
-  if(r.ok) loadAdmin(); else alert(r.error||'Error');
-}
-loadAdmin(); setInterval(loadAdmin, 5000);
+window.addEventListener('DOMContentLoaded', function(){
+  async function api(path, method='GET', body=null){
+    const opt={ method, headers:{'Content-Type':'application/json'} };
+    if(body) opt.body = JSON.stringify(body);
+    const r=await fetch(path,opt); const j=await r.json();
+    if(!r.ok){ console.error(j); return { ok:false, error:j.error||'Error' }; }
+    return j;
+  }
+  async function loadAdmin(){
+    const o = await api('/api/orders/all'); const d = await api('/api/drivers');
+    const ot = document.querySelector('#orders tbody'); ot.innerHTML='';
+    (o.orders||[]).forEach(x=>{
+      const tr=document.createElement('tr');
+      tr.innerHTML = `
+        <td>${x.id}</td><td>${x.status}</td><td>${x.address}</td>
+        <td>S/ ${x.total}</td><td>${x.assigned_driver||'—'}</td>
+        <td>${x.eta_min ?? '—'}</td><td>${new Date(x.created_at).toLocaleString()}</td>
+        <td>${x.status!=='delivered' ? `<button onclick="deliver(${x.id})">Entregado</button>` : '—'}</td>`;
+      ot.appendChild(tr);
+    });
+    const dt = document.querySelector('#drivers tbody'); dt.innerHTML='';
+    (d.list||[]).forEach(r=>{
+      const tr=document.createElement('tr');
+      tr.innerHTML = `<td>${r.phone}</td><td>${r.lat ?? '—'}</td><td>${r.lon ?? '—'}</td>
+                      <td>${r.status}</td><td>${r.active_orders}</td><td>${new Date(r.updated_at).toLocaleString()}</td>`;
+      dt.appendChild(tr);
+    });
+  }
+  window.deliver = async function(id){
+    const r = await api('/api/orders/'+id+'/deliver','POST');
+    if(r.ok) loadAdmin(); else alert(r.error||'Error');
+  }
+  loadAdmin(); setInterval(loadAdmin, 5000);
+});
 </script>
 """
 
