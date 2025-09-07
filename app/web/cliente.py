@@ -1,5 +1,5 @@
 from flask import Blueprint, session
-from ..base import render_page
+from base import render_page
 from ..utils import MENU
 
 cliente_bp = Blueprint("cliente", __name__)
