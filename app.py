@@ -4,8 +4,9 @@
 
 import os, math, hashlib, secrets
 from datetime import datetime
-from flask import Flask, request, jsonify, session, redirect, url_for, render_template_string
+from flask import Flask, request, jsonify, session, redirect, url_for, render_template
 from flask_sqlalchemy import SQLAlchemy
+from jinja2 import DictLoader
 
 # ===================== Config =====================
 app = Flask(__name__)
@@ -106,7 +107,7 @@ def haversine_km(lat1, lon1, lat2, lon2):
     a=math.sin(dphi/2)**2+math.cos(p1)*math.cos(p2)*math.sin(dl/2)**2
     return 2*R*math.asin(min(1, math.sqrt(a)))
 
-# ===================== Templates =====================
+# ===================== Templates (en memoria) =====================
 BASE = """
 <!doctype html>
 <html lang="es"><head>
@@ -147,7 +148,7 @@ BASE = """
 """
 
 CLIENTE = """
-{% extends base %}{% block content %}
+{% extends "base.html" %}{% block content %}
 <div class="card">
   <h1>🧑‍🍳 Cliente – Haz tu pedido</h1>
   <div class="row">
@@ -308,7 +309,7 @@ async function placeOrder(){
 """
 
 REPARTIDOR = """
-{% extends base %}{% block content %}
+{% extends "base.html" %}{% block content %}
 <div class="card">
   <h1>🚴 Repartidor – Toma pedidos</h1>
   <div class="row">
@@ -385,7 +386,7 @@ loadOrders(); setInterval(loadOrders, 5000);
 """
 
 RESTAURANTE = """
-{% extends base %}{% block content %}
+{% extends "base.html" %}{% block content %}
 <div class="card">
   <h1>🏪 Restaurante – Panel</h1>
   <p class="badge">Vista administrativa: pedidos y repartidores.</p>
@@ -441,6 +442,14 @@ loadAdmin(); setInterval(loadAdmin, 5000);
 </script>
 """
 
+# Registrar plantillas en memoria para poder usar render_template(...)
+app.jinja_loader = DictLoader({
+    "base.html": BASE,
+    "cliente.html": CLIENTE,
+    "repartidor.html": REPARTIDOR,
+    "restaurante.html": RESTAURANTE,
+})
+
 # ===================== Rutas UI =====================
 @app.route("/")
 def home():
@@ -448,16 +457,16 @@ def home():
 
 @app.route("/cliente")
 def cliente():
-    return render_template_string(CLIENTE, base=BASE, title="Cliente", tab="c",
-                                  phone=session.get("phone",""), menu=MENU)
+    return render_template("cliente.html", title="Cliente", tab="c",
+                           phone=session.get("phone",""), menu=MENU)
 
 @app.route("/repartidor")
 def repartidor():
-    return render_template_string(REPARTIDOR, base=BASE, title="Repartidor", tab="r")
+    return render_template("repartidor.html", title="Repartidor", tab="r")
 
 @app.route("/restaurante")
 def restaurante():
-    return render_template_string(RESTAURANTE, base=BASE, title="Restaurante", tab="a")
+    return render_template("restaurante.html", title="Restaurante", tab="a")
 
 @app.route("/logout")
 def logout():
@@ -621,7 +630,6 @@ def api_orders_deliver(order_id: int):
     o = Order.query.get(order_id)
     if not o: return jsonify(error="Pedido no existe"), 404
     o.status = "delivered"
-    # liberar driver si aplica
     if o.assigned_driver:
         drv = Driver.query.filter_by(phone=o.assigned_driver).first()
         if drv:
